@@ -110,6 +110,9 @@ The full analysis is in `notebook.ipynb`. Main steps:
   - Analysis of target variable: class balance of `Has_Mental_Health_Issue`
   - Relationships between target and important drivers (e.g. stress level, sleep, loneliness, social support)
   - Correlation / feature importance using tree-based models
+
+  ![image](./images/001.png)
+
 - **Models & tuning**
   - Model 1: **Logistic Regression** with hyperparameter tuning (C, class_weight)
   - Model 2: **Random Forest** with hyperparameter tuning (n_estimators, max_depth, min_samples, etc.)
@@ -117,7 +120,7 @@ The full analysis is in `notebook.ipynb`. Main steps:
   - All models use **RandomizedSearchCV** with 5-fold cross-validation
   - Model selection based on **ROC AUC** on validation data
   - The **best model** is automatically selected and saved to `model.bin` with DictVectorizer
-
+![image](./images/002.png)
 ---
 
 ## How to Run Locally (without Docker)
