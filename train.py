@@ -109,7 +109,7 @@ def main() -> None:
     print(X_train.shape, X_val.shape, X_test.shape)
 
     # =========================
-    # Hyperparameter tuning
+    # Hyperparameter tuning: Logistic Regression
     # =========================
     print("\n[INFO] Hyperparameter tuning: Logistic Regression")
 
