@@ -88,6 +88,10 @@ mental-health-lifestyle/
 │
 ├── model.bin                   # Saved model + vectorizer (created after running train.py)
 │
+├── k8s/                           # Kubernetes manifests
+│   ├── deployment.yaml            # Pod deployment
+│   └── service.yaml               # LoadBalancer service
+│
 ├── requirements.txt            # Python dependencies
 ├── Dockerfile                  # Container for the prediction service
 └── README.md                   # This file
