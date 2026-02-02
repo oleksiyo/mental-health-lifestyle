@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mental-health-lifestyle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mental-health-lifestyle
+  template:
+    metadata:
+      labels:
+        app: mental-health-lifestyle
+    spec:
+      containers:
+        - name: mental-health-lifestyle
+          image: mental-health-lifestyle:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"

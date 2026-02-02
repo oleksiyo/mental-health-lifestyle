@@ -274,118 +274,154 @@ You can test with `python test_api.py` or use the curl examples above.
 
 ---
 
-## Automated Deployment
 
-Use the provided deployment script for easy deployment to various platforms:
 
-```bash
-python deploy.py
-```
+## Cloud Deployment (AWS)
 
-This interactive script provides options for:
+### Prerequisites
 
-1. **Local Docker** - Build and run locally
-2. **AWS ECR + ECS** - Deploy to Amazon Web Services
-3. **Railway** - Deploy to Railway PaaS
-4. **Instructions** - View deployment guides for other platforms
+1. **AWS Account** - Create at [aws.amazon.com](https://aws.amazon.com/)
+2. **AWS CLI** - Install and configure:
+   ```bash
+   # Install AWS CLI
+   # Windows: Download from https://aws.amazon.com/cli/
+   # Mac: brew install awscli
+   # Linux: sudo apt install awscli
+   
+   # Configure with your credentials
+   aws configure
+   # Enter: AWS Access Key ID, Secret Access Key, Region (e.g., us-east-1)
+   ```
+3. **Docker** - Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
 
-### Manual Deployment Options
+### Automated Deployment (Recommended)
 
-```bash
-docker run -it --rm -p 9696:9696 mental-health-api
-```
-
-Now the same endpoints are available:
-
-- Health: `http://localhost:9696/health`
-- Prediction: `http://localhost:9696/predict`
-
-You can reuse the same `curl` example from the previous section.
-
----
-
-## Cloud Deployment
-
-### Option 1: Using deploy.py (Recommended)
-
-The easiest way to deploy is using the provided deployment script:
+Use the deployment script for automated deployment:
 
 ```bash
 python deploy.py
 ```
 
-Select from the menu:
-- **AWS ECR/ECS** - Automated deployment to AWS (requires AWS CLI configured)
-- **Railway** - Simple PaaS deployment (requires Railway CLI)
-- **View instructions** - Manual deployment guides
+**Menu options:**
+- **Option 1** - Build Docker image locally
+- **Option 2** - Run Docker container locally for testing
+- **Option 3** - Deploy to AWS ECR (push image to registry)
+- **Option 4** - Create ECS Task Definition
+- **Option 5** - Create ECS Service (instructions)
+- **Option 6** - **Full deployment** (all steps automatically)
 
-### Option 2: AWS (Manual)
+**For first-time deployment, select Option 6** - it will:
+1. Build Docker image
+2. Push to AWS ECR
+3. Create ECS Task Definition
+4. Provide instructions for ECS Service setup
 
-**Step 1: Build and push to ECR**
+### Manual Deployment
+
+#### Step 1: Push to AWS ECR
+
 ```bash
-# Authenticate to ECR
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+# Get your AWS account ID
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_REGION="us-east-1"
+REPO_NAME="mental-health-api"
 
-# Create repository
-aws ecr create-repository --repository-name mental-health-api --region us-east-1
+# Create ECR repository
+aws ecr create-repository --repository-name $REPO_NAME --region $AWS_REGION
+
+# Authenticate Docker to ECR
+aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
 # Build and push
-docker build -t mental-health-api .
-docker tag mental-health-api:latest <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/mental-health-api:latest
-docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/mental-health-api:latest
+docker build -t $REPO_NAME .
+docker tag $REPO_NAME:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_NAME:latest
+docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_NAME:latest
 ```
 
-**Step 2: Deploy with App Runner (simplest)**
-```bash
-aws apprunner create-service \
-  --service-name mental-health-api \
-  --source-configuration "ImageRepository={ImageIdentifier=<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/mental-health-api:latest,ImageRepositoryType=ECR}"
-```
-
-Or use **ECS Fargate** for more control (create task definition, service, and load balancer).
-
-### Option 3: Railway (Simplest)
+#### Step 2: Create ECS Cluster
 
 ```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login and deploy
-railway login
-railway init
-railway up
+aws ecs create-cluster --cluster-name mental-health-cluster --region $AWS_REGION
 ```
 
-Get your URL: `railway open`
+#### Step 3: Create Task Definition
 
-### Option 4: Other Platforms
+The deployment script creates `ecs-task-definition.json`. Register it:
 
-**Render** (via GitHub):
-1. Connect repository
-2. Select "Docker" as environment
-3. Set port to 9696
-4. Deploy
-
-**Fly.io**:
 ```bash
-fly launch  # Auto-detects Dockerfile
-fly deploy
+aws ecs register-task-definition --cli-input-json file://ecs-task-definition.json --region $AWS_REGION
 ```
 
-**Google Cloud Run**:
+Or create manually with these specs:
+- **CPU**: 256 (0.25 vCPU)
+- **Memory**: 512 MB
+- **Container Port**: 9696
+- **Launch Type**: Fargate
+
+#### Step 4: Create ECS Service
+
 ```bash
-gcloud run deploy mental-health-api --source . --port 9696 --allow-unauthenticated
+# Get your VPC and subnet IDs
+VPC_ID=$(aws ec2 describe-vpcs --query 'Vpcs[0].VpcId' --output text --region $AWS_REGION)
+SUBNET_ID=$(aws ec2 describe-subnets --query 'Subnets[0].SubnetId' --output text --region $AWS_REGION)
+
+# Create security group
+SG_ID=$(aws ec2 create-security-group \
+  --group-name mental-health-sg \
+  --description "Security group for Mental Health API" \
+  --vpc-id $VPC_ID \
+  --region $AWS_REGION \
+  --query 'GroupId' --output text)
+
+# Allow inbound traffic on port 9696
+aws ec2 authorize-security-group-ingress \
+  --group-id $SG_ID \
+  --protocol tcp \
+  --port 9696 \
+  --cidr 0.0.0.0/0 \
+  --region $AWS_REGION
+
+# Create ECS service
+aws ecs create-service \
+  --cluster mental-health-cluster \
+  --service-name mental-health-service \
+  --task-definition mental-health-api \
+  --desired-count 1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID],securityGroups=[$SG_ID],assignPublicIp=ENABLED}" \
+  --region $AWS_REGION
 ```
+
+#### Step 5: Get Service URL
+
+```bash
+# List tasks
+TASK_ARN=$(aws ecs list-tasks --cluster mental-health-cluster --region $AWS_REGION --query 'taskArns[0]' --output text)
+
+# Get task details and public IP
+aws ecs describe-tasks --cluster mental-health-cluster --tasks $TASK_ARN --region $AWS_REGION --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text | xargs -I {} aws ec2 describe-network-interfaces --network-interface-ids {} --region $AWS_REGION --query 'NetworkInterfaces[0].Association.PublicIp' --output text
+```
+
+Your API will be available at: `http://<PUBLIC_IP>:9696`
+
+### Cost Estimation
+
+**AWS Fargate costs** (us-east-1):
+- 0.25 vCPU: ~$0.012/hour = $8.64/month
+- 512 MB memory: ~$0.001/hour = $0.76/month
+- **Total: ~$9.40/month** (if running 24/7)
+
+**ECR Storage**: First 500 MB free, then $0.10/GB/month
 
 ---
 
-## Testing Deployed Service
+### Testing Deployed Service
 
 After deployment, test your service:
 
 ```bash
-# Update API_URL in test_api.py to your deployed URL
-# For example: API_URL = "https://your-service.railway.app"
+# Update API_URL in test_api.py to your AWS public IP
+# For example: API_URL = "http://3.85.123.456:9696"
 
 python test_api.py
 ```
@@ -393,12 +429,66 @@ python test_api.py
 Or use curl:
 
 ```bash
-curl -X POST "https://your-service-url/predict" \
+# Replace <PUBLIC_IP> with your ECS task's public IP
+curl http://<PUBLIC_IP>:9696/health
+
+curl -X POST "http://<PUBLIC_IP>:9696/predict" \
   -H "Content-Type: application/json" \
-  -d '{"Age": 34, "Gender": "Male", "Work_Stress_Level": 8, ...}'
+  -d '{
+    "Age": 34,
+    "Gender": "Male",
+    "Work_Stress_Level": 8,
+    "Sleep_Hours_Night": 5.0,
+    "Social_Support": 2,
+    "Loneliness": 8
+  }'
+```
+
+**Expected response:**
+```json
+{
+  "prediction": 1,
+  "probability": 0.8234
+}
+```
+
+
+
+## Cloud Deployment (Deploy to Kubernetes)
+
+1. Build Docker image
+```bash
+docker build -t mental-health-lifestyle:latest .
+```
+
+2. Deploy to Kubernetes
+```bash
+kubectl apply -f k8s/
+```
+
+3. Check status
+```bash
+kubectl get pods
+kubectl get svc
+```
+
+4. Get service URL (for minikube)
+```bash
+minikube service pmental-health-lifestyle --url
+```
+
+5. Test
+```bash
+curl http://<SERVICE-URL>/health
 ```
 
 ---
+
+**Files:**
+
+- k8s/deployment.yaml - Pod deployment
+- k8s/service.yaml - LoadBalancer service on port 80
+
 
 
 ##  Next Steps & Future Improvements
